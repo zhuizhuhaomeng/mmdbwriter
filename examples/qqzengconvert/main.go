@@ -3,9 +3,10 @@
 package main
 
 import (
-	"bufio"
+	"fmt"
 	"log"
 	"math"
+	"math/bits"
 	"net"
 	"os"
 	"strconv"
@@ -23,8 +24,11 @@ var province_ch2en map[string]string
 var province_ch2code map[string]string
 var city_ch2en map[string]string
 var city_en2code map[string]string
+var errorRecorder map[string]bool
 
 func init() {
+
+	errorRecorder = make(map[string]bool)
 	continents_ch2en = make(map[string]string)
 	continents_ch2en["亚洲"] = "Asia"
 	continents_ch2en["北美洲"] = "North America"
@@ -998,6 +1002,11 @@ func init() {
 	city_en2code = make(map[string]string)
 }
 
+func removeLastRune(s string) string {
+	r := []rune(s)
+	return string(r[:len(r)-1])
+}
+
 func continentCh2En(ch string) string {
 	if val, ok := continents_ch2en[ch]; ok {
 		return val
@@ -1016,24 +1025,31 @@ func continentCh2Code(ch string) string {
 	return ""
 }
 
-func provinceCh2En(country_code string, ch string) string {
+func provinceCh2En(country_code string, ch string) (string, string) {
 	key := country_code + ":" + ch
 	if val, ok := province_ch2en[key]; ok {
-		return val
+		return val, ""
 	}
 
-	log.Printf("can not convert province %s to english", ch)
-	return ""
+	if strings.HasSuffix(ch, "市") || strings.HasSuffix(ch, "省") {
+		ch = removeLastRune(ch)
+	}
+
+	key = country_code + ":" + ch
+	if val, ok := province_ch2en[key]; ok {
+		return val, ""
+	}
+
+	return "", "can not convert province to english"
 }
 
-func provinceCh2Code(country_code string, ch string) string {
+func provinceCh2Code(country_code string, ch string) (string, string) {
 	key := country_code + ":" + ch
 	if val, ok := province_ch2code[key]; ok {
-		return val
+		return val, ""
 	}
 
-	log.Printf("can not convert province %s to code", ch)
-	return ""
+	return "", "can not convert province to code"
 }
 
 func cityCh2En(ch string) string {
@@ -1041,7 +1057,7 @@ func cityCh2En(ch string) string {
 		return val
 	}
 
-	log.Printf("can not convert city %s to english", ch)
+	//log.Printf("can not convert city %s to english", ch)
 	return ""
 }
 
@@ -1052,6 +1068,17 @@ func cityEn2Code(en string) string {
 
 	log.Printf("can not convert city %s to english", en)
 	return ""
+}
+
+func UInt32ToIP(intIP uint32) net.IP {
+	var bytes [4]byte
+
+	bytes[0] = byte(intIP & 0xFF)
+	bytes[1] = byte((intIP >> 8) & 0xFF)
+	bytes[2] = byte((intIP >> 16) & 0xFF)
+	bytes[3] = byte((intIP >> 24) & 0xFF)
+
+	return net.IPv4(bytes[3], bytes[2], bytes[1], bytes[0])
 }
 
 func main() {
@@ -1071,153 +1098,128 @@ func main() {
 		log.Fatal(err)
 	}
 
-	records := qqip.GetAll()
-	for _, record := range records {
-		// fmt.Print(record.Startip, "|", record.Endip, "|", record.ContinentCh,
-		// 	"|", record.CityCh, "|", record.Latitude, "|", record.Longitude, "\n")
-	}
+	geos := qqip.GetAll()
+	for _, geo := range geos {
+		networkStr := UInt32ToIP(geo.Startip).String()
+		networks := []string{}
 
-	for _, file := range []string{"qqzeng.txt"} {
-		fh, err := os.Open(file)
-		if err != nil {
-			log.Fatal(err)
+		if geo.CountryCh == "保留" {
+			fmt.Println("Skip reserved network ", networkStr, " ", geo.Line)
+			continue
 		}
 
-		fileScanner := bufio.NewScanner(fh)
-		fileScanner.Split(bufio.ScanLines)
+		if networkStr == "0.0.0.0" || networkStr == "10.0.0.0" {
+			fmt.Println("Skip reserved network ", networkStr, ": ", geo.Line)
+			continue
+		}
 
-		for fileScanner.Scan() {
-			line := fileScanner.Text()
-			if len(line) == 0 {
-				continue
+		startIP := geo.Startip
+		dist := geo.Endip - geo.Startip + 1
+
+		for dist > 0 {
+			trailing_zeros := bits.TrailingZeros32(startIP)
+			max_zeros := int(math.Log2(float64(dist)))
+			min_zero := int(math.Min(float64(trailing_zeros), float64(max_zeros)))
+
+			ipstr := UInt32ToIP(startIP).String()
+			network := ipstr + "/" + strconv.Itoa(32-min_zero)
+			networks = append(networks, network)
+
+			startIP += 1 << min_zero
+			dist -= 1 << min_zero
+		}
+
+		record := mmdbtype.Map{}
+
+		if len(geo.ContinentCh) > 0 {
+			mmdbContinent := mmdbtype.Map{}
+			names := mmdbtype.Map{"zh-CN": mmdbtype.String(geo.ContinentCh)}
+			if len(geo.ContinentCh) > 0 {
+				continentCode := continentCh2Code(geo.ContinentCh)
+				mmdbContinent["code"] = mmdbtype.String(continentCode)
+				continentEn := continentCh2En(geo.ContinentCh)
+				names["en"] = mmdbtype.String(continentEn)
 			}
 
-			row := strings.Split(line, "|")
+			mmdbContinent["names"] = names
+			record["continent"] = mmdbContinent
+		}
 
-			if len(row) != 15 {
-				log.Fatalf("column number %d is not equal to 15, line: %v", len(row), line)
+		{
+			mmdbCountry := mmdbtype.Map{}
+			names := mmdbtype.Map{}
+			if len(geo.CountryCh) > 0 {
+				names["zh-CN"] = mmdbtype.String(geo.CountryCh)
 			}
 
-			//61.134.201.0|61.134.211.255|1032243456|1032246271|亚洲|中国|山西|太原||联通|140100|China|CN|112.        549248|37.857014
-			ip_start := row[0]
-			//ip_end := row[1]
-			ipnum_start, err := strconv.Atoi(row[2])
-			if err != nil {
-				log.Fatal("error: %s, line: %s", err, line)
+			if len(geo.CountryEn) > 0 {
+				names["en"] = mmdbtype.String(geo.CountryEn)
 			}
 
-			ipnum_end, err := strconv.Atoi(row[3])
-			if err != nil {
-				log.Fatal("error: %s, line: %s", err, line)
+			mmdbCountry["names"] = names
+			mmdbCountry["iso_code"] = mmdbtype.String(geo.CountryCode)
+			record["country"] = mmdbCountry
+		}
+
+		if len(geo.ProvinceCh) > 0 {
+			mmdbProvice := mmdbtype.Map{}
+			names := mmdbtype.Map{"zh-CN": mmdbtype.String(geo.ProvinceCh)}
+			if provinceEn, err := provinceCh2En(geo.CountryCode, geo.ProvinceCh); err != "" {
+				key := geo.CountryCode + ":" + geo.ProvinceCh
+				if errorRecorder[key] == false {
+					log.Println(key, " ", err, " ", geo.Line)
+					errorRecorder[key] = true
+				}
+			} else {
+				names["en"] = mmdbtype.String(provinceEn)
 			}
 
-			if ipnum_end < ipnum_start {
-				log.Fatal("ip_start should greater than ip_end, line: %s", err, line)
+			if provinceCode, err := provinceCh2Code(geo.CountryCode, geo.ProvinceCh); err != "" {
+				key := geo.CountryCode + "-" + geo.ProvinceCh
+				if errorRecorder[key] == false {
+					log.Println(key, " ", err, " ", geo.Line)
+					errorRecorder[key] = true
+				}
+			} else {
+				mmdbProvice["iso_code"] = mmdbtype.String(provinceCode)
 			}
 
-			continentCh := row[4]
-			country_ch := row[5]
-			province_ch := row[6]
-			city_ch := row[7]
-			//district_ch := row[8]
-			//isp := row[9]
-			//zipcode := row[10]
-			country_en := row[11]
-			country_code := row[12]
-			latitude, err := strconv.ParseFloat(row[13], 64)
-			if err != nil {
-				log.Fatal("error: %s, line: %s", err, line)
+			mmdbProvice["names"] = names
+			record["subdivisions"] = mmdbProvice
+		}
+
+		if len(geo.CityCh) > 0 {
+			mmdbCity := mmdbtype.Map{}
+			names := mmdbtype.Map{"zh-CN": mmdbtype.String(geo.CityCh)}
+			cityEn := cityCh2En(geo.CityCh)
+			if len(cityEn) > 0 {
+				names["en"] = mmdbtype.String(cityEn)
 			}
 
-			longitude, err := strconv.ParseFloat(row[14], 64)
-			if err != nil {
-				log.Fatal("error: %s, line: %s", err, line)
+			mmdbCity["names"] = names
+			record["city"] = mmdbCity
+		}
+
+		if geo.HasLatLong {
+			record["location"] = mmdbtype.Map{
+				"latitude":  mmdbtype.Float64(geo.Latitude),
+				"longitude": mmdbtype.Float64(geo.Longitude),
 			}
+		}
 
-			mask_len := int(math.Log2(float64(ipnum_end + 1 - ipnum_start)))
+		if len(geo.Isp) > 0 {
+			record["isp"] = mmdbtype.String(geo.Isp)
+		}
 
-			_, network, err := net.ParseCIDR(ip_start + "/" + strconv.Itoa(mask_len))
+		for _, networkStr := range networks {
+			_, network, err := net.ParseCIDR(networkStr)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			record := mmdbtype.Map{}
-
-			if len(continentCh) > 0 {
-				mmdbContinent := mmdbtype.Map{}
-				names := mmdbtype.Map{"zh-CN": mmdbtype.String(continentCh)}
-				continentEn := continentCh2En(continentCh)
-				if len(continentEn) > 0 {
-					continentCode := continentCh2Code(continentCh)
-					mmdbContinent["code"] = mmdbtype.String(continentCode)
-					names["en"] = mmdbtype.String(continentEn)
-				}
-
-				mmdbContinent["names"] = names
-				record["continent"] = mmdbContinent
-			}
-
-			{
-				mmdbCountry := mmdbtype.Map{}
-				names := mmdbtype.Map{}
-				if len(country_ch) > 0 {
-					names["zh-CN"] = mmdbtype.String(country_ch)
-				}
-
-				if len(country_en) > 0 {
-					names["en"] = mmdbtype.String(country_en)
-				}
-
-				mmdbCountry["names"] = names
-				mmdbCountry["iso_code"] = mmdbtype.String(country_code)
-				record["country"] = mmdbCountry
-			}
-
-			if len(province_ch) > 0 {
-				mmdbProvice := mmdbtype.Map{}
-				names := mmdbtype.Map{"zh-CN": mmdbtype.String(province_ch)}
-				provinceEn := provinceCh2En(country_code, province_ch)
-				if len(provinceEn) > 0 {
-					names["en"] = mmdbtype.String(provinceEn)
-				}
-				provinceCode := provinceCh2Code(country_code, province_ch)
-				if len(provinceCode) > 0 {
-					mmdbProvice["iso_code"] = mmdbtype.String(provinceCode)
-				}
-				mmdbProvice["names"] = names
-				record["subdivisions"] = mmdbProvice
-			}
-
-			if len(city_ch) > 0 {
-				mmdbCity := mmdbtype.Map{}
-				names := mmdbtype.Map{"zh-CN": mmdbtype.String(city_ch)}
-				cityEn := cityCh2En(province_ch)
-				if len(cityEn) > 0 {
-					names["en"] = mmdbtype.String(cityEn)
-				}
-
-				mmdbCity["names"] = names
-				record["city"] = mmdbCity
-			}
-
-			if latitude != 0 && longitude != 0 {
-				record["location"] = mmdbtype.Map{
-					"latitude":  mmdbtype.Float64(latitude),
-					"longitude": mmdbtype.Float64(longitude),
-				}
-			}
-
-			/*
-				if asn != 0 {
-					record["autonomous_system_number"] = mmdbtype.Uint32(asn)
-				}
-
-				if row[2] != "" {
-					record["autonomous_system_organization"] = mmdbtype.String(row[2])
-				}
-			*/
 			err = writer.Insert(network, record)
 			if err != nil {
+				fmt.Printf("%s|%v|%v|%s\n", network, geo.Startip, geo.Endip, geo.Line)
 				log.Fatal(err)
 			}
 		}

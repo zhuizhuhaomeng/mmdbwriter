@@ -1,7 +1,6 @@
 package qqzeng
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"strconv"
@@ -27,19 +26,21 @@ type ipSearch struct {
 }
 
 type geoInfo struct {
-	Startip      uint32
-	Endip        uint32
-	ContinentCh  string
-	CountryCh    string
-	ProvinceCh   string
-	CityCh       string
-	DistrictCh   string
-	Isp          string
-	Zipcode      string
-	Country_en   string
-	Country_code string
-	Latitude     float64
-	Longitude    float64
+	Startip     uint32
+	Endip       uint32
+	ContinentCh string
+	CountryCh   string
+	ProvinceCh  string
+	CityCh      string
+	DistrictCh  string
+	Isp         string
+	Zipcode     string
+	CountryEn   string
+	CountryCode string
+	Latitude    float64
+	Longitude   float64
+	HasLatLong  bool
+	Line        string
 }
 
 var ips *ipSearch = nil
@@ -90,13 +91,12 @@ func loadIpDat() (*ipSearch, error) {
 func (p ipSearch) GetAll() []geoInfo {
 
 	total := p.prefixMap[p.prefixCount-1].end_index
-	fmt.Println("firstStartIpOffset", p.firstStartIpOffset)
-
-	fmt.Println("prefixStartOffset", p.prefixStartOffset)
-	fmt.Println("prefixEndOffset", p.prefixEndOffset)
-	fmt.Println("prefixCount", p.prefixCount)
-	fmt.Println("firstIndex", p.prefixMap[0].start_index)
-	fmt.Println("lastIndex", total)
+	// fmt.Println("firstStartIpOffset", p.firstStartIpOffset
+	// fmt.Println("prefixStartOffset", p.prefixStartOffset)
+	// fmt.Println("prefixEndOffset", p.prefixEndOffset)
+	// fmt.Println("prefixCount", p.prefixCount)
+	// fmt.Println("firstIndex", p.prefixMap[0].start_index)
+	// fmt.Println("lastIndex", total)
 
 	records := []geoInfo{}
 
@@ -120,8 +120,10 @@ func (p ipSearch) GetAll() []geoInfo {
 		entry.DistrictCh = row[4]
 		entry.Isp = row[5]
 		entry.Zipcode = row[6]
-		entry.Country_en = row[7]
-		entry.Country_code = row[8]
+		entry.CountryEn = row[7]
+		entry.CountryCode = row[8]
+		entry.Line = line
+
 		if len(row[9]) > 0 {
 			val, err := strconv.ParseFloat(row[9], 64)
 			if err != nil {
@@ -129,6 +131,7 @@ func (p ipSearch) GetAll() []geoInfo {
 			} else {
 				entry.Latitude = val
 			}
+			entry.HasLatLong = true
 		}
 
 		if len(row[10]) > 0 {
@@ -138,6 +141,7 @@ func (p ipSearch) GetAll() []geoInfo {
 			} else {
 				entry.Longitude = val
 			}
+			entry.HasLatLong = true
 		}
 
 		records = append(records, entry)
