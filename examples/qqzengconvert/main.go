@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"./qqzeng"
+	"qqzeng/lib/qqzeng"
 
 	"github.com/maxmind/mmdbwriter"
 	"github.com/maxmind/mmdbwriter/mmdbtype"
@@ -1061,8 +1061,6 @@ func main() {
 		return
 	}
 
-	qqip.GetAll()
-
 	writer, err := mmdbwriter.New(
 		mmdbwriter.Options{
 			DatabaseType: "My-ASN-DB",
@@ -1071,6 +1069,12 @@ func main() {
 	)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	records := qqip.GetAll()
+	for _, record := range records {
+		// fmt.Print(record.Startip, "|", record.Endip, "|", record.ContinentCh,
+		// 	"|", record.CityCh, "|", record.Latitude, "|", record.Longitude, "\n")
 	}
 
 	for _, file := range []string{"qqzeng.txt"} {

@@ -26,6 +26,22 @@ type ipSearch struct {
 	prefixCount        uint32
 }
 
+type geoInfo struct {
+	Startip      uint32
+	Endip        uint32
+	ContinentCh  string
+	CountryCh    string
+	ProvinceCh   string
+	CityCh       string
+	DistrictCh   string
+	Isp          string
+	Zipcode      string
+	Country_en   string
+	Country_code string
+	Latitude     float64
+	Longitude    float64
+}
+
 var ips *ipSearch = nil
 
 func New() (ipSearch, error) {
@@ -71,7 +87,7 @@ func loadIpDat() (*ipSearch, error) {
 	return &p, nil
 }
 
-func (p ipSearch) GetAll() {
+func (p ipSearch) GetAll() []geoInfo {
 
 	total := p.prefixMap[p.prefixCount-1].end_index
 	fmt.Println("firstStartIpOffset", p.firstStartIpOffset)
@@ -82,12 +98,52 @@ func (p ipSearch) GetAll() {
 	fmt.Println("firstIndex", p.prefixMap[0].start_index)
 	fmt.Println("lastIndex", total)
 
+	records := []geoInfo{}
+
 	for i := uint32(0); i < total; i++ {
 		ipindex := ipIndex{}
 		ipindex.getIndex(uint32(i), &p)
-		fmt.Print(ipindex.startip, "|", ipindex.endip, "|")
-		fmt.Println(ipindex.getLocal(&p))
+		line := ipindex.getLocal(&p)
+		//fmt.Println(line)
+		entry := geoInfo{}
+		entry.Startip = ipindex.startip
+		entry.Endip = ipindex.endip
+		row := strings.Split(line, "|")
+		if len(row) != 11 {
+			log.Fatal("columns do not equal to 11, line: %s", line)
+		}
+
+		entry.ContinentCh = row[0]
+		entry.CountryCh = row[1]
+		entry.ProvinceCh = row[2]
+		entry.CityCh = row[3]
+		entry.DistrictCh = row[4]
+		entry.Isp = row[5]
+		entry.Zipcode = row[6]
+		entry.Country_en = row[7]
+		entry.Country_code = row[8]
+		if len(row[9]) > 0 {
+			val, err := strconv.ParseFloat(row[9], 64)
+			if err != nil {
+				log.Fatal("error: %s, line: %s", err, line)
+			} else {
+				entry.Latitude = val
+			}
+		}
+
+		if len(row[10]) > 0 {
+			val, err := strconv.ParseFloat(row[10], 64)
+			if err != nil {
+				log.Fatal("error: %s, line: %s", err, line)
+			} else {
+				entry.Longitude = val
+			}
+		}
+
+		records = append(records, entry)
 	}
+
+	return records
 }
 
 func (p *ipIndex) getIndex(left uint32, ips *ipSearch) {
