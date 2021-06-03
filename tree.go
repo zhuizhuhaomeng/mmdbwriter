@@ -78,6 +78,8 @@ type Options struct {
 	// to `inserter.ReplaceWith`, which replaces any conflicting old value
 	// entirely with the new.
 	Inserter inserter.FuncGenerator
+	// Only use English name
+	OnlyEn bool
 }
 
 // Tree represents an MaxMind DB search tree.
@@ -160,6 +162,30 @@ func New(opts Options) (*Tree, error) {
 	return tree, nil
 }
 
+func TrimNames(val interface{}) {
+	if val == nil {
+		return
+	}
+
+	v := val.(mmdbtype.Map)
+
+	names := v["names"].(mmdbtype.Map)
+	new_names := mmdbtype.Map{"en": names["en"]}
+	v["names"] = new_names
+}
+
+func TrimRVNames(rv mmdbtype.Map) {
+	TrimNames(rv["continent"])
+	TrimNames(rv["country"])
+	TrimNames(rv["city"])
+	TrimNames(rv["registered_country"])
+	if subdivisions, ok := rv["subdivisions"]; ok {
+		for _, sd := range subdivisions.(mmdbtype.Slice) {
+			TrimNames(sd)
+		}
+	}
+}
+
 // Load an existing database into the writer.
 func Load(path string, opts Options) (*Tree, error) {
 	db, err := maxminddb.Open(path)
@@ -209,6 +235,11 @@ func Load(path string, opts Options) (*Tree, error) {
 		network, err = networks.Network(dser)
 		if err != nil {
 			return nil, err
+		}
+
+		if opts.OnlyEn {
+			rv := dser.rv.(mmdbtype.Map)
+			TrimRVNames(rv)
 		}
 
 		err = tree.Insert(network, dser.rv)
