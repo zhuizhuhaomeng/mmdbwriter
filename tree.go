@@ -79,7 +79,8 @@ type Options struct {
 	// entirely with the new.
 	Inserter inserter.FuncGenerator
 	// Only use English name
-	OnlyEn bool
+	OnlyEn        bool
+	DelRegCountry bool
 }
 
 // Tree represents an MaxMind DB search tree.
@@ -237,8 +238,12 @@ func Load(path string, opts Options) (*Tree, error) {
 			return nil, err
 		}
 
+		rv := dser.rv.(mmdbtype.Map)
+		if opts.DelRegCountry {
+			delete(rv, "registered_country")
+		}
+
 		if opts.OnlyEn {
-			rv := dser.rv.(mmdbtype.Map)
 			TrimRVNames(rv)
 		}
 
