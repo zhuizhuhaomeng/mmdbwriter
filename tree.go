@@ -171,8 +171,10 @@ func TrimNames(val interface{}) {
 	v := val.(mmdbtype.Map)
 
 	names := v["names"].(mmdbtype.Map)
-	new_names := mmdbtype.Map{"en": names["en"]}
-	v["names"] = new_names
+	if en, ok := names["en"]; ok {
+		new_names := mmdbtype.Map{"en": en}
+		v["names"] = new_names
+	}
 }
 
 func TrimRVNames(rv mmdbtype.Map) {
